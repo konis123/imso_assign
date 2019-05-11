@@ -93,27 +93,27 @@ static long assign_ioctl(struct file* file, unsigned int cmd, unsigned long arg)
 			tmp->fd = current->pid;//ku_pir_open_fd;
 			tmp->queue_size = 0;//큐사이즈
 		
-			list_add_tail/*_rcu*/(&tmp->head, &mylist.head);	
+			list_add_tail_rcu(&tmp->head, &mylist.head);//
 			printk("ioctl_list open!!!!!\n");
 			
 			break;
 		case ASSIGN_IOCTL2://ku_pir_close(int fd)
 			ku_pir_close_fd = (int)arg;
 			//printk("ioctl_ku_pir_close_fd:%d\n", ku_pir_close_fd);
-			//rcu_read_lock();
+			rcu_read_lock();
 			printk("ioctl_close_pid:%d\n", current->pid);			
 			list_for_each_safe(pos, q, &mylist.head){
 				tmp = list_entry(pos, struct assign_node, head);
 				//printk("ioctl_ tmp->fd:%d   ku_pir_close_fd:%d\n", tmp->fd, ku_pir_close_fd);
 				if((tmp->fd) == current->pid){
-					list_del/*_rcu*/(pos);
+					list_del_rcu(pos);//
 					kfree(tmp);
 					printk("delete complete\n");
 					return 0;
 				}
 			
 			}		
-			//rcu_read_unlock();
+			rcu_read_unlock();
 
 			return -1;//해당 fd의 자료구조가 없으면 -1을 반환
 		case ASSIGN_IOCTL3://ku_pir_read(int fd,struct ku_pir_data *data)
@@ -134,9 +134,9 @@ static long assign_ioctl(struct file* file, unsigned int cmd, unsigned long arg)
 			wait_event_interruptible(my_wq, get_queue_size(tmp_pid)>0);
 			//printk("wait tempsize :%d\n", );
 
-			//rcu_read_lock();
-			spin_lock(&my_lock);
-			list_for_each_entry/*_rcu*/(tmp, &mylist.head, head){//
+			rcu_read_lock();
+			//spin_lock(&my_lock);
+			list_for_each_entry_rcu(tmp, &mylist.head, head){//
 				if((tmp->fd) == current->pid){
 					printk("wait2 pid:%d end2 wait size:%d\n", tmp->fd, tmp->queue_size);
 					list_for_each_safe(qpos, q, &tmp->qlist.head){
@@ -144,7 +144,7 @@ static long assign_ioctl(struct file* file, unsigned int cmd, unsigned long arg)
 						copy_to_user(ku_pir_read_data, &qtmp->data, sizeof(struct ku_pir_data));
 						printk("ioctl_read_pid:%d\n", current->pid);
 						printk("&qtmp->data.data: %ld, %c\n", (qtmp->data).timestamp, (qtmp->data).rf_flag);
-						list_del/*_rcu*/(qpos);//
+						list_del_rcu(qpos);//
 						kfree(qtmp);
 						(tmp->queue_size)--;
 
@@ -152,19 +152,19 @@ static long assign_ioctl(struct file* file, unsigned int cmd, unsigned long arg)
 					}
 				}
 			}
-			spin_unlock(&my_lock);
-			//rcu_read_unlock();
+			//spin_unlock(&my_lock);
+			rcu_read_unlock();
 
 			return 0;
 		case ASSIGN_IOCTL4://ku_pir_flush(int fd)
 			ku_pir_flush_fd = (int)arg;
 			
-			//rcu_read_lock();
-                        list_for_each_entry/*_rcu*/(tmp, &mylist.head, head){//
+			rcu_read_lock();
+                        list_for_each_entry_rcu(tmp, &mylist.head, head){//
                                 if((tmp->fd) == current->pid){
 					list_for_each_safe(qpos, q, &(tmp->qlist).head){
 						qtmp = list_entry(qpos, struct queue_node, head);
-						list_del/*_rcu*/(qpos);//
+						list_del_rcu(qpos);//
 						kfree(qtmp);
 						printk("ioctl_flushing...\n");
 					}
@@ -172,35 +172,34 @@ static long assign_ioctl(struct file* file, unsigned int cmd, unsigned long arg)
                                 }
                              
                         }
-			//rcu_read_unlock();
+			rcu_read_unlock();
 
 			break;
 		case ASSIGN_IOCTL5://ku_pir_insertdata(long unsigned int ts, char rf_flag)
 			ku_pir_insertData_data = ((struct ku_pir_insertData_param*)arg)->data;
 			printk("ioctl_insertData %ld, %d\n", ku_pir_insertData_data.timestamp, ku_pir_insertData_data.rf_flag);	
 			
-			//rcu_read_lock();
-			spin_lock(&my_lock);
-			list_for_each_entry/*_rcu*/(tmp, &mylist.head, head){//
+			rcu_read_lock();
+			//spin_lock(&my_lock);
+			list_for_each_entry_rcu(tmp, &mylist.head, head){//
 				qtmp = (struct queue_node*)kmalloc(sizeof(struct queue_node), GFP_KERNEL);
 				qtmp->data.timestamp = ku_pir_insertData_data.timestamp;
 				qtmp->data.rf_flag = ku_pir_insertData_data.rf_flag;
 
-                		list_add_tail/*_rcu*/(&qtmp->head, &tmp->qlist.head);//
+                		list_add_tail_rcu(&qtmp->head, &tmp->qlist.head);//
 				printk("ioctl_insertData - list add\n");
 
 				(tmp->queue_size)++;
 				printk("insertData pid:%d size: %d\n", tmp->fd, tmp->queue_size);
-				//wake_up(&my_wq);
 			}
 
-			list_for_each_entry/*_rcu*/(tmp, &mylist.head, head){//
+			list_for_each_entry_rcu(tmp, &mylist.head, head){//
 		                if( (tmp->queue_size) > KUPIR_MAX_MSG ){
 
         		                list_for_each_safe(qpos, q, &(tmp->qlist).head){
         	        	                qtmp = list_entry(qpos, struct queue_node, head);
 
-        	                	        list_del/*_rcu*/(qpos);//
+        	                	        list_del_rcu(qpos);//
         	                        	kfree(qtmp);
         	                        	(tmp->queue_size)--;
 	
@@ -210,8 +209,8 @@ static long assign_ioctl(struct file* file, unsigned int cmd, unsigned long arg)
                 		}
 
         		}
-			spin_unlock(&my_lock);
-			//rcu_read_unlock();
+			//spin_unlock(&my_lock);
+			rcu_read_unlock();
 			
 			wake_up(&my_wq);
 
@@ -242,6 +241,7 @@ struct file_operations assign_char_fops = {
 static irqreturn_t kupir_sensor_isr(int irq, void* dev_id){
         printk("kupir detect\n");
 	
+	rcu_read_lock();
 	list_for_each_entry_rcu(tmp, &mylist.head, head){
 		
 		qtmp = (struct queue_node*)kmalloc(sizeof(struct queue_node), GFP_KERNEL);
@@ -275,8 +275,9 @@ static irqreturn_t kupir_sensor_isr(int irq, void* dev_id){
 		}
 
 	}
+	rcu_read_unlock();
 
-	wake_up_interruptible(&my_wq);
+	wake_up(&my_wq);
 
         return IRQ_HANDLED;
 }
